@@ -19,15 +19,12 @@ include = [
 features = ["unstable"]
 
 [features]
-default = ["audio", "default-tls"]
+default = ["audio"]
 # Enable the unstable api
 unstable = []
 audio = ["audiopus"]
 bundled = ["sdl2/bundled"]
 static-link = ["sdl2/static-link"]
-# Enable default reqwest features.
-# Use default-features=false on tsclientlib to configure reqwest differently.
-default-tls = ["reqwest/charset", "reqwest/default-tls", "reqwest/http2"]
 # Use API of audiopus fork at https://github.com/Flakebi/audiopus for more features
 audiopus-unstable = []
 
@@ -40,7 +37,6 @@ itertools = "0.13"
 num-traits = "0.2"
 pin-utils = "0.1"
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false }
 thiserror = "1"
 time = "0.3"
 tokio = { version = "1", features = ["time"] }
@@ -52,7 +48,6 @@ ts-bookkeeping = { path = "../utils/ts-bookkeeping", version = "0.1" }
 tsproto = { path = "../tsproto", version = "0.2" }
 tsproto-packets = { path = "../utils/tsproto-packets", version = "0.1" }
 tsproto-types = { path = "../utils/tsproto-types", version = "0.1" }
-url = "2"
 
 [dev-dependencies]
 anyhow = "1"

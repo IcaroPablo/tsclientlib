@@ -19,7 +19,6 @@ use tracing::{debug, instrument, warn};
 const DEFAULT_PORT: u16 = 9987;
 const DNS_PREFIX_TCP: &str = "_tsdns._tcp.";
 const DNS_PREFIX_UDP: &str = "_ts3._udp.";
-const NICKNAME_LOOKUP_ADDRESS: &str = "https://named.myteamspeak.com/lookup";
 /// Wait this amount of seconds before giving up.
 const TIMEOUT_SECONDS: u64 = 10;
 
@@ -43,16 +42,10 @@ pub enum Error {
 	InvalidIp6Address,
 	#[error("Invalid IP address")]
 	InvalidIpAddress,
-	#[error("Not a valid nickname")]
-	InvalidNickname,
 	#[error("Failed to parse port: {0}")]
 	InvalidPort(#[source] std::num::ParseIntError),
 	#[error("Failed to contact {0} server: {1}")]
 	Io(&'static str, #[source] std::io::Error),
-	#[error("Failed to parse url: {0}")]
-	NicknameParseUrl(#[source] url::ParseError),
-	#[error("Failed to resolve nickname: {0}")]
-	NicknameResolve(#[source] reqwest::Error),
 	#[error("Found no SRV entry")]
 	NoSrvEntry,
 	#[error("Failed to resolve hostname: {0}")]
@@ -77,7 +70,6 @@ enum ParseIpResult<'a> {
 ///
 /// The following methods are tried:
 /// 1. If the address is an ip, the ip is returned
-/// 1. Server nicknames are resolved by a http request to TeamSpeak
 /// 1. The SRV record at `_ts3._udp.<address>`
 /// 1. The SRV record at `_tsdns._tcp.address.tld` to get the address of a tsdns
 ///    server, e.g. when the address is `ts3.subdomain.from.com`, the SRV record
@@ -106,45 +98,27 @@ pub fn resolve(address: String) -> impl Stream<Item = Result<SocketAddr>> {
 		Err(res) => return stream::once(future::err(res)).left_stream(),
 	}
 
-	// Resolve as nickname
-	let res = if !address.contains('.') && addr != "localhost" {
-		debug!("Resolving nickname");
-		// Could be a server nickname
-		resolve_nickname(address.clone())
-			.map_ok(move |mut addr| {
-				if let Some(port) = port {
-					addr.set_port(port);
-				}
-				addr
-			})
-			.left_stream()
-	} else {
-		stream::once(future::err(Error::InvalidNickname)).right_stream()
-	};
-
 	// The system config does not yet work on android:
 	// https://github.com/bluejekyll/trust-dns/issues/652
 	let addr2 = addr.clone();
 	// TODO Move current span into stream
-	let res = res.chain(
-		stream::once(async move {
-			let resolver = create_resolver();
+	let res = stream::once(async move {
+		let resolver = create_resolver();
 
-			// Try to get the address by an SRV record
-			let prefix = Name::from_str(DNS_PREFIX_UDP).expect("Cannot parse udp domain prefix");
-			let mut name =
-				Name::from_str(&addr2).map_err(|e| Error::InvalidDomain(addr2.clone(), e))?;
-			name.set_fqdn(true);
+		// Try to get the address by an SRV record
+		let prefix = Name::from_str(DNS_PREFIX_UDP).expect("Cannot parse udp domain prefix");
+		let mut name =
+			Name::from_str(&addr2).map_err(|e| Error::InvalidDomain(addr2.clone(), e))?;
+		name.set_fqdn(true);
 
-			Result::<_>::Ok(resolve_srv(
-				resolver,
-				prefix.append_name(&name).map_err(|e| {
-					Error::InvalidComposedDomain(DNS_PREFIX_UDP.to_string(), addr2.clone(), e)
-				})?,
-			))
-		})
-		.try_flatten(),
-	);
+		Result::<_>::Ok(resolve_srv(
+			resolver,
+			prefix.append_name(&name).map_err(|e| {
+				Error::InvalidComposedDomain(DNS_PREFIX_UDP.to_string(), addr2.clone(), e)
+			})?,
+		))
+	})
+	.try_flatten();
 
 	// Try to get the address of a tsdns server by an SRV record
 	let addr2 = addr.clone();
@@ -316,46 +290,6 @@ fn parse_ip(address: &str) -> Result<ParseIpResult> {
 		None
 	};
 	Ok(ParseIpResult::Other(addr, port))
-}
-
-pub fn resolve_nickname(nickname: String) -> impl Stream<Item = Result<SocketAddr>> {
-	stream::once(async {
-		let nickname = nickname;
-		let url =
-			reqwest::Url::parse_with_params(NICKNAME_LOOKUP_ADDRESS, Some(("name", &nickname)))
-				.map_err(Error::NicknameParseUrl)?;
-		let body = reqwest::get(url)
-			.await
-			.map_err(Error::NicknameResolve)?
-			.error_for_status()
-			.map_err(Error::NicknameResolve)?
-			.text()
-			.await
-			.map_err(Error::NicknameResolve)?;
-		let addrs = body
-			.split(&['\r', '\n'][..])
-			.filter(|s| !s.is_empty())
-			.map(|s| Result::<_>::Ok(s.to_string()))
-			.collect::<Vec<_>>();
-
-		Result::<_>::Ok(
-			stream::iter(addrs)
-				.and_then(|addr| async move {
-					match parse_ip(&addr)? {
-						ParseIpResult::Addr(a) => Ok(stream::once(future::ok(a)).left_stream()),
-						ParseIpResult::Other(a, p) => {
-							let addrs = net::lookup_host((a, p.unwrap_or(DEFAULT_PORT)))
-								.await
-								.map_err(Error::ResolveHost)?
-								.collect::<Vec<_>>();
-							Ok(stream::iter(addrs).map(Result::<_>::Ok).right_stream())
-						}
-					}
-				})
-				.try_flatten(),
-		)
-	})
-	.try_flatten()
 }
 
 pub async fn resolve_tsdns<A: net::ToSocketAddrs>(server: A, addr: &str) -> Result<SocketAddr> {

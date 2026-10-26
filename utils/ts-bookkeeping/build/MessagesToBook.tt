@@ -125,8 +125,8 @@ impl Connection {
 		let mut events = Vec::new();
 		match msg {
 <#
-// Group events by message
-let mut groups = HashMap::new();
+// Group events by message, sorted by name so that every build generates the same code
+let mut groups = BTreeMap::new();
 for event in &self.decls {
 	let group = groups.entry(event.msg.name.as_str()).or_insert_with(Vec::new);
 	group.push(event);

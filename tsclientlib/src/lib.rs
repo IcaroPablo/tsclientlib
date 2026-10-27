@@ -253,6 +253,12 @@ pub enum StreamItem {
 	NetworkStatsUpdated,
 	/// A change related to audio.
 	AudioChange(AudioEvent),
+	/// The text of a command from the server, sent only with
+	/// [`ConnectOptions::raw_commands`].
+	///
+	/// Every command comes this way, before it is handled as usual. This gives access to commands
+	/// and arguments the declarations do not know, like those of TeamSpeak 6 streams.
+	RawCommand(String),
 }
 
 /// The `Connection` is the main interaction point with this library.
@@ -391,6 +397,7 @@ impl Connection {
 			log_commands: false,
 			log_packets: false,
 			log_udp_packets: false,
+			raw_commands: false,
 		}
 	}
 
@@ -1340,6 +1347,10 @@ impl ConnectedConnection {
 		&mut self, book: &mut data::Connection, stream_items: &mut VecDeque<Result<StreamItem>>,
 		options: &mut ConnectOptions, cmd: InCommandBuf,
 	) -> Option<TemporaryDisconnectReason> {
+		if options.raw_commands {
+			let raw = String::from_utf8_lossy(cmd.data().packet().content()).into_owned();
+			stream_items.push_back(Ok(StreamItem::RawCommand(raw)));
+		}
 		let msg = match InMessage::new(cmd.data().packet().header(), cmd.data().packet().content())
 		{
 			Ok(r) => r,
@@ -1705,6 +1716,7 @@ pub struct ConnectOptions {
 	log_commands: bool,
 	log_packets: bool,
 	log_udp_packets: bool,
+	raw_commands: bool,
 }
 
 impl ConnectOptions {
@@ -2001,6 +2013,17 @@ impl ConnectOptions {
 		self
 	}
 
+	/// If every command from the server should also be returned as text, in a
+	/// [`StreamItem::RawCommand`].
+	///
+	/// # Default
+	/// `false`
+	#[inline]
+	pub fn raw_commands(mut self, raw_commands: bool) -> Self {
+		self.raw_commands = raw_commands;
+		self
+	}
+
 	#[inline]
 	pub fn get_address(&self) -> &ServerAddress { &self.address }
 	#[inline]
@@ -2039,4 +2062,6 @@ impl ConnectOptions {
 	pub fn get_log_packets(&self) -> bool { self.log_packets }
 	#[inline]
 	pub fn get_log_udp_packets(&self) -> bool { self.log_udp_packets }
+	#[inline]
+	pub fn get_raw_commands(&self) -> bool { self.raw_commands }
 }

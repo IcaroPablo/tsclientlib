@@ -79,6 +79,9 @@ pub enum SyncStreamItem {
 	NetworkStatsUpdated,
 	/// A change related to audio.
 	AudioChange(AudioEvent),
+	/// The text of a command from the server, sent only with
+	/// [`ConnectOptions::raw_commands`](crate::ConnectOptions::raw_commands).
+	RawCommand(String),
 }
 
 /// A handle for a [`SyncConnection`] which can be sent across threads.
@@ -281,6 +284,7 @@ impl Stream for SyncConnection {
 						}
 						StreamItem::NetworkStatsUpdated => SyncStreamItem::NetworkStatsUpdated,
 						StreamItem::AudioChange(change) => SyncStreamItem::AudioChange(change),
+						StreamItem::RawCommand(raw) => SyncStreamItem::RawCommand(raw),
 					})),
 					Some(Err(e)) => Some(Err(e)),
 					None => {
